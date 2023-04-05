@@ -1,14 +1,14 @@
 # set -e
-#IMPORTANTE PONER LOS LC
+
 export LC_NUMERIC=C.UTF-8;
 
-#Últimos requisitos de PyLaia
 conda activate pylaia
 
-#Variables, parámetros y rutas para Docker
+#Variables, parameters and routes for Docker
 GPU=2
 BatchSize=4
-WorkDir=/root/directorioTrabajo/DOC-NER/NER_IAM/
+WorkDir=/root/directorioTrabajo/DOC-NER/HTR-NER/NER_IAM/
+ScriptsDir=/root/directorioTrabajo/DOC-NER/HTR-NER/scripts/
 PartDir=${WorkDir}/PARTITIONS
 TextDir=${WorkDir}/6_NOT_PARENTHESIZED_TEXT
 DataDir=${WorkDir}/DATA/
@@ -26,7 +26,7 @@ cd $WorkDir
 rm -rf ${TextDir}
 mkdir ${TextDir}
 
-python $WorkDir/scripts/IAM_generate_tagged_line_transcription.py 1 \
+python $ScriptsDir/IAM_generate_tagged_line_transcription.py 1 \
        $WorkDir/ne_annotations/iam_all_custom_6_all.txt $DataDir/ascii/lines.txt \
        $TextDir/index.words
 
@@ -53,7 +53,7 @@ cat ${TextDir}/index.words | awk '{
         printf("\n");
 }' | sed 's/"/'\'' '\''/g;s/#/<stroke>/g' > char.total.txt
 
-#Extraer vocaboluario y número de símbolos en el vocabulario
+#Extract vocabulary and number of symbols in vocabulary
 cat char.total.txt | cut -f 2- -d\  | tr \  \\n| sort -u -V | awk 'BEGIN{   N=0;   printf("%-12s %d\n", "<eps>", N++);   printf("%-12s %d\n", "<ctc>", N++);  }NF==1{  printf("%-12s %d\n", $1, N++);}' >  symb.txt
 # NSYMBOLS=$(sed -n '${ s|.* ||; p; }' "symb.txt");
 
@@ -62,14 +62,13 @@ cat char.total.txt | cut -f 2- -d\  | tr \  \\n| sort -u -V | awk 'BEGIN{   N=0;
 mkdir $PartDir
 cd ${PartDir}
 
-python $WorkDir/scripts/IAM_generate_part_files.py $WorkDir/ne_annotations/iam_train_custom_6_all.txt $TextDir/index.words $PartDir/train.lst
-python $WorkDir/scripts/IAM_generate_part_files.py $WorkDir/ne_annotations/iam_test_custom_6_all.txt $TextDir/index.words $PartDir/test.lst
-python $WorkDir/scripts/IAM_generate_part_files.py $WorkDir/ne_annotations/iam_valid_custom_6_all.txt $TextDir/index.words $PartDir/val.lst
+python $ScriptsDir/IAM_generate_part_files.py $WorkDir/ne_annotations/iam_train_custom_6_all.txt $TextDir/index.words $PartDir/train.lst
+python $ScriptsDir/IAM_generate_part_files.py $WorkDir/ne_annotations/iam_test_custom_6_all.txt $TextDir/index.words $PartDir/test.lst
+python $ScriptsDir/IAM_generate_part_files.py $WorkDir/ne_annotations/iam_valid_custom_6_all.txt $TextDir/index.words $PartDir/val.lst
 
 
-#PREPROCESO PARA CREACIÓN DE FICHEROS .TXT CON NOMBRE ARCHIVO Y TRANSCRIP.
-#A PARTIR DE ARCHIVO INDEX.WORDS CON TODAS LAS PALABRAS Y .LST CON FICHEROS
-#DE PARTICION --> VOLCAR TODO EN WorkDir/TMP/
+#GENERATE .TXT FILES WITH LINE ID AND TRANSCRIPTION
+#FROM .LST FILES (PARTITION) AND INDEX.WORDS
 rm -rf ${TmpDir}
 mkdir ${TmpDir}
 cd ${TmpDir}
@@ -82,7 +81,7 @@ for f in $(<./train.lst); do grep "${f}\b" ${TextDir}/index.words; done > ./trai
 for f in $(<./test.lst); do grep "${f}\b" ${TextDir}/index.words; done > ./test.txt
 for f in $(<./val.lst); do grep "${f}\b" ${TextDir}/index.words; done > ./val.txt
 
-# CREACION CHAR.TRAIN CHAR.VAL CHAR.TEST
+# CREATION CHAR.TRAIN CHAR.VAL CHAR.TEST
 for f in $(<./train.lst); do grep "${f}\b" ${TextDir}/index.words; done |
 awk '{
   printf("%s", $1);
@@ -145,7 +144,7 @@ cd ${WorkDir}
 rm -rf ${ModelDir}
 mkdir ${ModelDir}
 
-#Creación del modelo óptico. 
+#Creation of the optical model.
 pylaia-htr-create-model \
   --print_args True \
   --train_path ${ModelDir} \
@@ -169,7 +168,7 @@ pylaia-htr-create-model \
 
 #--cnn_num_features 16 32 64 96 \
 
-#Entrenamiento del modelo óptico.
+#Optical model training.
 pylaia-htr-train-ctc-rgb \
   --print_args TRUE --gpu ${GPU} \
   --train_path ${ModelDir} --model_filename model \
@@ -192,9 +191,7 @@ pylaia-htr-train-ctc-rgb \
 mkdir ${TmpDir}/decode
 cd ${TmpDir}/decode 
 
-#Aquí ponerse a hacer rutas completas es un cacao
-
-#DECODIFICACION TEST Y VAL PARA WER
+#Decodification Test and Val for Wer
 #CER (SPACE = "<SPACE>", JOIN_STR = " ")
 pylaia-htr-decode-ctc-rgb \
   --print_args True \
@@ -229,7 +226,7 @@ pylaia-htr-decode-ctc-rgb \
   ${TmpDir}/symb.txt $img_dirs ${TmpDir}/val.lst > ${TmpDir}/decode/va.txt
 
 
-# Get word-level transcript hypotheses (CALCULO WER A POSTERIORI)
+# Get word-level transcript hypotheses (WER)
 awk '{
   printf("%s ", $1);
   for (i=2;i<=NF;++i) {
@@ -269,13 +266,13 @@ awk '{
 # Compute CER/WER.
 cd ${TmpDir}/decode
 if $(which compute-wer &> /dev/null); then
-  #CALCULO CER
+  #CER
   echo "test" > $WorkDir/not_parenthesized_res_exp.txt
   compute-wer --mode=present ark:${CharDir}/char.total.txt ark:${TmpDir}/decode/test.txt | grep WER | sed -r 's|%WER|%CER|g' >> $WorkDir/not_parenthesized_res_exp.txt
   echo "val" >> $WorkDir/not_parenthesized_res_exp.txt
   compute-wer --mode=present ark:${CharDir}/char.total.txt ark:${TmpDir}/decode/va.txt | grep WER | sed -r 's|%WER|%CER|g' >> $WorkDir/not_parenthesized_res_exp.txt
 
-  #CALCULO WER
+  # WER
   echo "test" >> $WorkDir/not_parenthesized_res_exp.txt
   compute-wer --mode=present  ark:${CharDir}/word.total.txt ark:${TmpDir}/decode/wordtest.txt |  grep WER >> $WorkDir/not_parenthesized_res_exp.txt
   echo "val" >> $WorkDir/not_parenthesized_res_exp.txt
@@ -297,16 +294,16 @@ if $(which compute-wer &> /dev/null); then
   #sed 's/</ </g;s/>/> /g' SeparateSimbols-corrected_wordtest.txt | sed 's/  / /g' > k; mv k SeparateSimbols-corrected_wordtest.txt
   sed 's/</ </g;s/>/> /g' SeparateSimbols-wordva.txt | sed 's/  / /g' > k; mv k SeparateSimbols-wordva.txt
 
-  #Cálculo WER con la separación de los caracteres de arriba ^ (hola! -> hola !)
+ #Wer calculation with the separation of the characters above ^ (Hello! -> Hello!)
   compute-wer --mode=present ark:SeparateSimbols-word.txt ark:SeparateSimbols-wordtest.txt >> $WorkDir/not_parenthesized_res_exp.txt
   echo "------------" >> $WorkDir/not_parenthesized_res_exp.txt
   compute-wer --mode=present ark:SeparateSimbols-word.txt ark:SeparateSimbols-wordva.txt >> $WorkDir/not_parenthesized_res_exp.txt
   echo "------------" >> $WorkDir/not_parenthesized_res_exp.txt
 
   #WER with tagging fix
-  python $WorkDir/scripts/fix_separate_symb_output.py $TmpDir/decode/SeparateSimbols-wordtest.txt $TmpDir/decode/fixed_SeparateSimbols-wordtest.txt
-  python $WorkDir/scripts/fix_separate_symb_output.py $TmpDir/decode/SeparateSimbols-word.txt $TmpDir/decode/fixed_SeparateSimbols-word.txt
-  python $WorkDir/scripts/fix_separate_symb_output.py $TmpDir/decode/SeparateSimbols-wordva.txt $TmpDir/decode/fixed_SeparateSimbols-wordva.txt  
+  python $ScriptsDir/fix_separate_symb_output.py $TmpDir/decode/SeparateSimbols-wordtest.txt $TmpDir/decode/fixed_SeparateSimbols-wordtest.txt
+  python $ScriptsDir/fix_separate_symb_output.py $TmpDir/decode/SeparateSimbols-word.txt $TmpDir/decode/fixed_SeparateSimbols-word.txt
+  python $ScriptsDir/fix_separate_symb_output.py $TmpDir/decode/SeparateSimbols-wordva.txt $TmpDir/decode/fixed_SeparateSimbols-wordva.txt  
 
   cp $TmpDir/decode/fixed_SeparateSimbols-wordtest.txt $TmpDir/decode/lattices/
   cp $TmpDir/decode/fixed_SeparateSimbols-word.txt $TmpDir/decode/lattices/
@@ -326,22 +323,22 @@ fi;
 
 
 ######################################################################################################
-## Genero el GT de las NER
+## NER GT
 
 cd ${WorkDir}
 
 mkdir ${NerDir}
 cd ${NerDir}
-$WorkDir/scripts/extractNER-GT_GW.sh ${TextDir}/index.words 
+$ScriptsDir/extractNER-GT_GW.sh ${TextDir}/index.words 
 
 cd -
 mkdir ${NerNoRepDir}
 cd ${NerNoRepDir}
-$WorkDir/scripts/extractNER-GT-noRep.sh ${TextDir}/index.words
+$ScriptsDir/extractNER-GT-noRep.sh ${TextDir}/index.words
 
 
 ########################################################################################################################
-################# Incluir modelo de lenguaje ###########################################################################
+################# Language Model #######################################################################################
 ########################################################################################################################
 
 # Force alignment
@@ -400,21 +397,21 @@ BLANK_SYMB="<ctc>"                        # BLSTM non-character symbol
 WHITESPACE_SYMB="<space>"                 # White space symbol
 DUMMY_CHAR="<DUMMY>"                      # Especial HMM used for modelling "</s>" end-sentence
 
-$WorkDir/scripts/prepare_lang_cl-ds.sh lm ./chars.lst "${BLANK_SYMB}" "${WHITESPACE_SYMB}" "${DUMMY_CHAR}"
+$ScriptsDir/prepare_lang_cl-ds.sh lm ./chars.lst "${BLANK_SYMB}" "${WHITESPACE_SYMB}" "${DUMMY_CHAR}"
 
 cd lm/
 
-# Preparing LM (G) ==> 5-GRAM BECAUSE THE CORPUS HAS LESS DATA
+# Preparing LM (G)
 
 for f in $(<${PartDir}/train.lst); do
  nn=`basename ${f/.png/}`; grep $nn ../char/char.total.txt;
 done | cut -d " " -f 2- | ngram-count -vocab ../chars.lst -text - -lm lang/LM.arpa -order 8 -wbdiscount1 -kndiscount -interpolate
 
-#LA GRAMÁTICA GENERADA ES PROBABILÍSTICA PERO PROBABILIDADES NO SUMAN 1 (SE USAN SCORES)
-$WorkDir/scripts/prepare_lang_test-ds.sh lang/LM.arpa lang lang_test "$DUMMY_CHAR"
+#The generated grammar is probabilistic but probabilities do not add 1 (scores are used)
+$ScriptsDir/prepare_lang_test-ds.sh lang/LM.arpa lang lang_test "$DUMMY_CHAR"
 
-# python $WorkDir/scripts/generate_categorical_sfsa_gw.py $LangDir/lm/lang/phones.txt $WorkDir/CAT_FST/Categorical.fst
-# $WorkDir/scripts/prepare_lang_test_categorical.sh $WorkDir/CAT_FST/Categorical.fst lang lang_test "$DUMMY_CHAR"
+# python $ScriptsDir/generate_categorical_sfsa_gw.py $LangDir/lm/lang/phones.txt $WorkDir/CAT_FST/Categorical.fst
+# $ScriptsDir/prepare_lang_test_categorical.sh $WorkDir/CAT_FST/Categorical.fst lang lang_test "$DUMMY_CHAR"
 
 
 ##########################################################################################################
@@ -433,7 +430,7 @@ blankID=$(awk -v bs="${BLANK_SYMB}" '{if (bs==$1) print $2}' ${LangDir}/lm/lang/
 HMM_LOOP_PROB=0.5                         # Self-Loop HMM-state probability
 HMM_NAC_PROB=0.5                          # BLSTM-NaC HMM-state probability
 
-$WorkDir/scripts/create_proto_rnn-ds.sh $featdim ${HMM_LOOP_PROB} ${HMM_NAC_PROB} HMMs/train ${dummyID} ${blankID} ${phones_list[@]}
+$ScriptsDir/create_proto_rnn-ds.sh $featdim ${HMM_LOOP_PROB} ${HMM_NAC_PROB} HMMs/train ${dummyID} ${blankID} ${phones_list[@]}
 
 
 
@@ -443,7 +440,7 @@ $WorkDir/scripts/create_proto_rnn-ds.sh $featdim ${HMM_LOOP_PROB} ${HMM_NAC_PROB
 ############################################################################################################
 
 mkdir HMMs/test
-$WorkDir/scripts/mkgraph.sh --mono --transition-scale 1.0 --self-loop-scale 1.0 $LangDir/lm/lang_test HMMs/train/new.mdl HMMs/train/new.tree HMMs/test/graph
+$ScriptsDir/mkgraph.sh --mono --transition-scale 1.0 --self-loop-scale 1.0 $LangDir/lm/lang_test HMMs/train/new.mdl HMMs/train/new.tree HMMs/test/graph
 
 ############################################################################################################
 
@@ -471,31 +468,25 @@ WIP=-1.16902908
 
 cd lattices
 
-$WorkDir/scripts/score.sh --wip $WIP --lmw $ASF $ModelDir/HMMs/test/graph/words.txt "ark:gzip -c -d lat-test.gz |" $LangDir/char/char.total.txt hypotheses-test 2>log
-$WorkDir/scripts/score.sh --wip $WIP --lmw $ASF $ModelDir/HMMs/test/graph/words.txt "ark:gzip -c -d lat-validation.gz |" $LangDir/char/char.total.txt hypotheses-validation 2>log
+$ScriptsDir/score.sh --wip $WIP --lmw $ASF $ModelDir/HMMs/test/graph/words.txt "ark:gzip -c -d lat-test.gz |" $LangDir/char/char.total.txt hypotheses-test 2>log
+$ScriptsDir/score.sh --wip $WIP --lmw $ASF $ModelDir/HMMs/test/graph/words.txt "ark:gzip -c -d lat-validation.gz |" $LangDir/char/char.total.txt hypotheses-validation 2>log
 
 
-
-
-#No funciona bien el simplex porque el parser de comandos se atasca
-#Lo he editado para que use python2
-#SIGUE PETANDO PORQUE NO SACA RESULTADOS (???) PERO LUEGO NO SE USAN LOS RES.???
-simplex.py -v -m "/root/directorioTrabajo/TFM-NER/scripts/opt_gsf-wip_cl.sh {$ASF} {$WIP}" > result-simplex
-#/root/directorioTrabajo/TFM-NER/scripts/
+simplex.py -v -m "${ScriptsDir}/opt_gsf-wip_cl.sh {$ASF} {$WIP}" > result-simplex
 
 ASF=1.27216049 
 WIP=-0.76260881
 
-$WorkDir/scripts/score.sh --wip $WIP --lmw $ASF $ModelDir/HMMs/test/graph/words.txt "ark:gzip -c -d lat-test.gz |" $LangDir/char/char.total.txt hypotheses-test 2>log
+$ScriptsDir/score.sh --wip $WIP --lmw $ASF $ModelDir/HMMs/test/graph/words.txt "ark:gzip -c -d lat-test.gz |" $LangDir/char/char.total.txt hypotheses-test 2>log
 
 
-# Pasar el modelo de lenguaje de categorías y generar output
+# Pass the category language model and generate output
 # lattice-lmrescore --lm-scale=1.0 "ark:gzip -c -d lat-test.gz |" ${LangDir}/lm/lang_test/G_cat.fst "ark:|gzip -c > rescored_lat-test.gz"
 # lattice-lmrescore --lm-scale=1.0 "ark:gzip -c -d lat-validation.gz |" ${LangDir}/lm/lang_test/G_cat.fst "ark:|gzip -c > rescored_lat-validation.gz"
-# $WorkDir/scripts/score.sh --wip $WIP --lmw $ASF $ModelDir/HMMs/test/graph/words.txt "ark:gzip -c -d rescored_lat-test.gz |" $LangDir/char/char.total.txt rescored_hypotheses-test 2>log
-# $WorkDir/scripts/score.sh --wip $WIP --lmw $ASF $ModelDir/HMMs/test/graph/words.txt "ark:gzip -c -d rescored_lat-validation.gz |" $LangDir/char/char.total.txt rescored_hypotheses-validation 2>log
+# $ScriptsDir/score.sh --wip $WIP --lmw $ASF $ModelDir/HMMs/test/graph/words.txt "ark:gzip -c -d rescored_lat-test.gz |" $LangDir/char/char.total.txt rescored_hypotheses-test 2>log
+# $ScriptsDir/score.sh --wip $WIP --lmw $ASF $ModelDir/HMMs/test/graph/words.txt "ark:gzip -c -d rescored_lat-validation.gz |" $LangDir/char/char.total.txt rescored_hypotheses-validation 2>log
 
-#Rescoring lattice -> Pasar modelo de lenguaje -> generar output (Resultados algo peores)
+#Rescoring Latice -> Pass language model -> generate output (somewhat worse results)
 # lattice-scale --acoustic-scale=${ASF} "ark:gzip -c -d lat-test.gz |" ark:- | \
 # lattice-add-penalty --word-ins-penalty=${WIP} ark:- ark:- | \
 # lattice-lmrescore --lm-scale=1.0 ark:- ${LangDir}/lm/lang_test/G_cat.fst "ark:|gzip -c > rescored_lat-test.gz"
@@ -514,9 +505,9 @@ int2sym.pl -f 2- $LangDir/lm/lang_test/words.txt hypotheses-validation > hypothe
 # int2sym.pl -f 2- $LangDir/lm/lang_test/words.txt rescored_hypotheses-validation > rescored_hypotheses-validation_t
 
 
-# #RECOMBINAR LOS OUTPUTS PARA QUE SE COJA EL OUTPUT DEL RESCORED Y EL OTRO EN CASO DE DUDA
-# python $WorkDir/scripts/combine_hypotheses_files.py rescored_hypotheses-test_t hypotheses-test_t combined_hypotheses-test_t
-# python $WorkDir/scripts/combine_hypotheses_files.py rescored_hypotheses-validation_t hypotheses-validation_t combined_hypotheses-validation_t 
+#Combine the outputs so that the Output of the Rescore is taken and the other in case of doubt
+# python $ScriptsDir/combine_hypotheses_files.py rescored_hypotheses-test_t hypotheses-test_t combined_hypotheses-test_t
+# python $ScriptsDir/combine_hypotheses_files.py rescored_hypotheses-validation_t hypotheses-validation_t combined_hypotheses-validation_t 
 
 ############################################################################################################
 
@@ -568,24 +559,24 @@ awk '{
 # }' combined_hypotheses-validation_t > word-lm/combined_hyp_word-validation.txt;
 
 
-#ALINEAR LOS OUTPUT PARA GENERAR HIPOTESIS CON TRANSC 1-BEST Y TAGGING CORRECTO
-# python $WorkDir/scripts/align_hypotheses.py word-lm/hyp_word-validation.txt word-lm/combined_hyp_word-validation.txt \
+#Align the output to generate hypothesis with trac 1-best and correct tagging
+# python $ScriptsDir/align_hypotheses.py word-lm/hyp_word-validation.txt word-lm/combined_hyp_word-validation.txt \
 # word-lm/aligned_hypotheses-validation.txt
 
-# python $WorkDir/scripts/align_hypotheses.py word-lm/hyp_word-test.txt word-lm/combined_hyp_word-test.txt \
+# python $ScriptsDir/align_hypotheses.py word-lm/hyp_word-test.txt word-lm/combined_hyp_word-test.txt \
 # word-lm/aligned_hypotheses-test.txt
 
-# python $WorkDir/scripts/align_hypotheses.py hypotheses-validation_t  combined_hypotheses-validation_t  \
+# python $ScriptsDir/align_hypotheses.py hypotheses-validation_t  combined_hypotheses-validation_t  \
 # aligned_hypotheses-validation_t > log.txt
 
-# python $WorkDir/scripts/align_hypotheses.py hypotheses-test_t combined_hypotheses-test_t \
+# python $ScriptsDir/align_hypotheses.py hypotheses-test_t combined_hypotheses-test_t \
 # aligned_hypotheses-test_t > log.txt
 
 # #ALIGNMENT AT WORD LEVEL
-# python $WorkDir/scripts/align_hypotheses_wer.py hypotheses-validation_t  combined_hypotheses-validation_t  \
+# python $ScriptsDir/align_hypotheses_wer.py hypotheses-validation_t  combined_hypotheses-validation_t  \
 # wer_aligned_hypotheses-validation_t > log.txt
 
-# python $WorkDir/scripts/align_hypotheses_wer.py hypotheses-test_t combined_hypotheses-test_t \
+# python $ScriptsDir/align_hypotheses_wer.py hypotheses-test_t combined_hypotheses-test_t \
 # wer_aligned_hypotheses-test_t > log.txt
 
 
@@ -635,7 +626,7 @@ awk '{
 
 
 echo "==============" >> $WorkDir/not_parenthesized_res_exp.txt
-echo "Resultados tras añadir LM" >> $WorkDir/not_parenthesized_res_exp.txt
+echo "Results after adding LM" >> $WorkDir/not_parenthesized_res_exp.txt
 
 #cd $TmpDir/decode/
 #Compute CER/WER.
@@ -674,8 +665,8 @@ if $(which compute-wer &> /dev/null); then
   compute-wer --mode=present ark:SeparateSimbols-word.txt ark:SeparateSimbols-wordtest.txt >> $WorkDir/not_parenthesized_res_exp.txt
 
   echo "Test wer separate (fixed)" >> $WorkDir/not_parenthesized_res_exp.txt
-  python $WorkDir/scripts/fix_separate_symb_output_alt.py $TmpDir/decode/lattices/SeparateSimbols-wordtest.txt $TmpDir/decode/lattices/fixed_SeparateSimbols-wordtest.txt
-  python $WorkDir/scripts/fix_separate_symb_output_alt.py $TmpDir/decode/lattices/SeparateSimbols-word.txt $TmpDir/decode/lattices/fixed_SeparateSimbols-word.txt
+  python $ScriptsDir/fix_separate_symb_output_alt.py $TmpDir/decode/lattices/SeparateSimbols-wordtest.txt $TmpDir/decode/lattices/fixed_SeparateSimbols-wordtest.txt
+  python $ScriptsDir/fix_separate_symb_output_alt.py $TmpDir/decode/lattices/SeparateSimbols-word.txt $TmpDir/decode/lattices/fixed_SeparateSimbols-word.txt
   compute-wer --mode=present ark:fixed_SeparateSimbols-word.txt ark:fixed_SeparateSimbols-wordtest.txt >> $WorkDir/not_parenthesized_res_exp.txt
 
   # sed 's/\([.,:;?]\)/ \1/g;s/\([¿¡]\)/\1 /g' word-lm/combined_hyp_word-test.txt > SeparateSimbols-wordtest.txt
@@ -722,7 +713,7 @@ fi;
 ##########################################################################
 ## ORACLE METRICS
 
-# $WorkDir/scripts/oracle_transc.sh $TmpDir $LangDir/lm/lang $TmpDir/decode/lattices/
+# $ScriptsDir/oracle_transc.sh $TmpDir $LangDir/lm/lang $TmpDir/decode/lattices/
 
 # int2sym.pl -f 2- $LangDir/lm/lang_test/words.txt $TmpDir/decode/lattices/oracle_transc.txt > $TmpDir/decode/lattices/oracle_transc_t
 
@@ -751,11 +742,11 @@ fi;
 
 
 ##########################################################################
-## EVALUACIÓN PRECISIÓN - RECALL
+## Evaluation Precision - Recall
 cd $TmpDir/decode/
 
-# python $WorkDir/scripts/fix_separate_symb_output.py $TmpDir/decode/SeparateSimbols-wordtest.txt $TmpDir/decode/fixed_SeparateSimbols-wordtest.txt
-# python $WorkDir/scripts/fix_separate_symb_output.py $TmpDir/decode/SeparateSimbols-word.txt $TmpDir/decode/fixed_SeparateSimbols-word.txt
+# python $ScriptsDir/fix_separate_symb_output.py $TmpDir/decode/SeparateSimbols-wordtest.txt $TmpDir/decode/fixed_SeparateSimbols-wordtest.txt
+# python $ScriptsDir/fix_separate_symb_output.py $TmpDir/decode/SeparateSimbols-word.txt $TmpDir/decode/fixed_SeparateSimbols-word.txt
 
 cd $TmpDir
 for f in $(<$PartDir/test.lst); do grep "${f}\b" ${TmpDir}/decode/lattices/fixed_SeparateSimbols-word.txt; done > ./fixed_SeparateSimbols-GT_test.txt
@@ -766,14 +757,14 @@ cd $WorkDir/PREC-REC/
 rm -rf $WorkDir/PREC-REC/6_NOT_PARENTHESIZED_NER-GT
 mkdir $WorkDir/PREC-REC/6_NOT_PARENTHESIZED_NER-GT
 cd $WorkDir/PREC-REC/6_NOT_PARENTHESIZED_NER-GT
-python $WorkDir/scripts/extract_ner_not_parenthesized_gw.py $TmpDir/fixed_SeparateSimbols-GT_test.txt ./
+python $ScriptsDir/extract_ner_not_parenthesized_gw.py $TmpDir/fixed_SeparateSimbols-GT_test.txt ./
 for f in *; do sed 's/^ //g' -i $f; done
 cd ..
 
 rm -rf $WorkDir/PREC-REC/6_NOT_PARENTHESIZED_NER-DECODE
 mkdir $WorkDir/PREC-REC/6_NOT_PARENTHESIZED_NER-DECODE
 cd $WorkDir/PREC-REC/6_NOT_PARENTHESIZED_NER-DECODE
-python $WorkDir/scripts/extract_ner_not_parenthesized_gw.py $TmpDir/decode/lattices/fixed_SeparateSimbols-wordtest.txt ./
+python $ScriptsDir/extract_ner_not_parenthesized_gw.py $TmpDir/decode/lattices/fixed_SeparateSimbols-wordtest.txt ./
 for f in *; do sed 's/^ //g' -i $f; done
 cd ..
 
@@ -782,23 +773,23 @@ cd ..
 # rm -rf $WorkDir/PREC-REC/ORACLE_NER
 # mkdir $WorkDir/PREC-REC/ORACLE_NER
 # cd $WorkDir/PREC-REC/ORACLE_NER
-# $WorkDir/scripts/extractNERHip2.sh $TmpDir/decode/lattices/word-lm/oracle_transc-test.txt .
+# $ScriptsDir/extractNERHip2.sh $TmpDir/decode/lattices/word-lm/oracle_transc-test.txt .
 # for f in *; do sed 's/^ //g' -i $f; done
 
 # cd ..
 
 # mkdir $WorkDir/PREC-REC/NER-GT
 # cd $WorkDir/PREC-REC/NER-GT
-# $WorkDir/scripts/extractNER-GT_GW.sh $TmpDir/SeparateSimbols-GT_test.txt .
+# $ScriptsDir/extractNER-GT_GW.sh $TmpDir/SeparateSimbols-GT_test.txt .
 # for f in *; do sed 's/^ //g' -i $f; done
 
 # cd ..
 
 #NER NORMAL
-python $WorkDir/scripts/calc_prec_rec.py ./6_NOT_PARENTHESIZED_NER-GT ./6_NOT_PARENTHESIZED_NER-DECODE >> $WorkDir/not_parenthesized_res_exp.txt
-python $WorkDir/scripts/alt_dist_edicion_custom_saturated.py ./6_NOT_PARENTHESIZED_NER-GT ./6_NOT_PARENTHESIZED_NER-DECODE >> $WorkDir/not_parenthesized_res_exp.txt
+python $ScriptsDir/calc_prec_rec.py ./6_NOT_PARENTHESIZED_NER-GT ./6_NOT_PARENTHESIZED_NER-DECODE >> $WorkDir/not_parenthesized_res_exp.txt
+python $ScriptsDir/alt_dist_edicion_custom_saturated.py ./6_NOT_PARENTHESIZED_NER-GT ./6_NOT_PARENTHESIZED_NER-DECODE >> $WorkDir/not_parenthesized_res_exp.txt
 
 
 # echo "ORACLE NER RESULTS" >> $WorkDir/not_parenthesized_res_exp.txt
-# python $WorkDir/scripts/calc_prec_rec.py ./NER-GT ./ORACLE_NER >> $WorkDir/not_parenthesized_res_exp.txt
-# python $WorkDir/scripts/alt_dist_edicion_custom_saturated.py ./NER-GT ./ORACLE_NER >> $WorkDir/not_parenthesized_res_exp.txt
+# python $ScriptsDir/calc_prec_rec.py ./NER-GT ./ORACLE_NER >> $WorkDir/not_parenthesized_res_exp.txt
+# python $ScriptsDir/alt_dist_edicion_custom_saturated.py ./NER-GT ./ORACLE_NER >> $WorkDir/not_parenthesized_res_exp.txt
