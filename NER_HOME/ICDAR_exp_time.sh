@@ -6,8 +6,8 @@ conda activate pylaia
 #Varables, parameters and routes for Docker
 GPU=1
 BatchSize=8
-WorkDir=/root/directorioTrabajo/HTR-NER/NER_HOME/
-ScriptsDir=/root/directorioTrabajo/HTR-NER/scripts/
+WorkDir=/root/directorioTrabajo/DOC-NER/HTR-NER/NER_HOME/
+ScriptsDir=/root/directorioTrabajo/DOC-NER/HTR-NER/scripts/
 PartDir=${WorkDir}/PARTITIONS
 TextDir=${WorkDir}/TEXT
 DataDir=${WorkDir}/DATA
