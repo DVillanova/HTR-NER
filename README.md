@@ -11,6 +11,7 @@ The line-level Named Entity annotation for the George Washington and IAM dataset
 
 
 References: 
+
 [1] Tjong Kim Sang, E.F., Buchholz, S.: Introduction to the CoNLL-2000 shared task chunking. In: Fourth Conference on Computational Natural Language Learning and the Second Learning Language in Logic Workshop. pp. 127–132 (2000)
 
 [2] Marti, U.V., Bunke, H.: The iam-database: an english sentence database for offline handwriting recognition. International Journal on Document Analysis and Recognition 5(1), 39–46 (2002)
