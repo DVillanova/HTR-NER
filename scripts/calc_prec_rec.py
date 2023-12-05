@@ -19,7 +19,7 @@ false_positives = 0
 true_positives_2 = 0
 false_negatives = 0
 
-#True positives and false positives calculate
+#True positives and false positives calculation
 for f in files_ner_hyp:
     ner_hyp = ""
     path_file_hyp = os.path.join(path_ner_hyp_folder, f) 
